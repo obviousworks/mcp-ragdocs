@@ -356,7 +356,7 @@ class RagDocsServer {
                 type: 'string',
                 description: 'Embedding provider to use (ollama or openai)',
                 enum: ['ollama', 'openai'],
-                default: 'ollama'
+                default: 'ollama',
               },
               apiKey: {
                 type: 'string',
@@ -373,32 +373,43 @@ class RagDocsServer {
       ],
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-      if (request.method === 'tools/call') {
-        request.params = request.params.arguments;
+    // Unified handler for both legacy and tools/call schema
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      // Claude/Roo: { method: 'tools/call', params: { name, arguments } }
+      // Legacy: { method: 'add_documentation', params: { url } }
+      let toolName, args;
+      if (request.method === 'tools/call' && request.params && request.params.name) {
+        toolName = request.params.name;
+        args = request.params.arguments || {};
+      } else if (request.method && typeof request.method === 'string' && request.params) {
+        toolName = request.method;
+        args = request.params;
+      } else {
+        throw new McpError(ErrorCode.InvalidParams, 'Malformed tool request');
       }
 
-      switch (request.params.name) {
-        case 'add_documentation':
-        case 'search_documentation':
-        case 'list_sources':
-          await this.initCollection();
-          break;
+      // For core tools, always ensure collection is ready
+      if ([
+        'add_documentation',
+        'search_documentation',
+        'list_sources',
+      ].includes(toolName)) {
+        await this.initCollection();
       }
 
-      switch (request.params.name) {
+      switch (toolName) {
         case 'add_documentation':
-          return this.handleAddDocumentation(request.params.arguments);
+          return this.handleAddDocumentation(args);
         case 'search_documentation':
-          return this.handleSearchDocumentation(request.params.arguments);
+          return this.handleSearchDocumentation(args);
         case 'list_sources':
           return this.handleListSources();
         case 'test_ollama':
-          return this.handleTestEmbeddings(request.params.arguments);
+          return this.handleTestEmbeddings(args);
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
-            `Unknown tool: ${request.params.name}`
+            `Unknown tool: ${toolName}`
           );
       }
     });
