@@ -137,7 +137,7 @@ class RagDocsServer {
 				);
 				
 				// Error handling
-				this.server.onerror = (error) => console.error('[MCP Error]', error);
+				this.server.onerror = (error: Error) => console.error('[MCP Error]', error);
 				process.on('SIGINT', async () => {
 						await this.cleanup();
 						process.exit(0);
@@ -373,7 +373,11 @@ class RagDocsServer {
       ],
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
+      if (request.method === 'tools/call') {
+        request.params = request.params.arguments;
+      }
+
       switch (request.params.name) {
         case 'add_documentation':
         case 'search_documentation':
