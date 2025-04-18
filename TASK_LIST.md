@@ -13,6 +13,8 @@
 - [ ] Test MCP server with Claude/Roo and legacy clients
 
 ### TODOs
+- [x] Create comprehensive README.md for external users #task
+- [x] Create .env.example file #task
 - [ ] Add more tests for edge cases (invalid params, unknown tool, etc.)
 - [ ] Refactor if tool registry expands beyond current scope
 
