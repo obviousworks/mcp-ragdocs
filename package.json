@@ -29,16 +29,16 @@
     "claude",
     "llm"
   ],
-  "author": "qpd-v",
+  "author": "obviousworks",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/qpd-v/mcp-server-ragdocs.git"
+    "url": "git+https://github.com/obviousworks/mcp-ragdocs.git"
   },
   "bugs": {
-    "url": "https://github.com/qpd-v/mcp-server-ragdocs/issues"
+    "url": "https://github.com/obviousworks/mcp-ragdocs/issues"
   },
-  "homepage": "https://github.com/qpd-v/mcp-server-ragdocs#readme",
+  "homepage": "https://github.com/obviousworks/mcp-ragdocs#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
     "@qdrant/js-client-rest": "^1.8.0",

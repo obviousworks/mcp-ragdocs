@@ -24,8 +24,8 @@ A [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/specifi
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/qpd-v/mcp-server-ragdocs.git
-    cd mcp-server-ragdocs
+    git clone https://github.com/obviousworks/mcp-ragdocs.git
+    cd mcp-ragdocs
     ```
 2.  **Install dependencies:**
     ```bash
