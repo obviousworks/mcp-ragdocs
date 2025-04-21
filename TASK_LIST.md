@@ -21,13 +21,16 @@
 ## [PDF Ingestion Support]
 
 ### Tasks
-- [ ] Design and document PDF ingestion workflow ([PDF_INGESTION_PLAN.md])
-- [ ] Detect PDF URLs/content-type in ingestion pipeline
-- [ ] Integrate pdf-parse and implement PDF text extraction
-- [ ] Chunk and embed PDF text
-- [ ] Store PDF metadata in Qdrant
-- [ ] Update tool descriptions and README
-- [ ] Add tests for PDF ingestion and error cases
+- [x] Design and document PDF ingestion workflow ([PDF_INGESTION_PLAN.md])
+- [x] Detect PDF URLs/content-type in ingestion pipeline
+- [x] Integrate pdf-parse and implement PDF text extraction
+- [x] Chunk and embed PDF text
+- [x] Store PDF metadata in Qdrant
+- [x] Update tool descriptions and README ([README.md])
+- [x] Add tests for PDF ingestion and error cases (basic)
+- [ ] Advanced PDF chunking (split large pages)
+- [ ] Local PDF file upload support
+- [ ] More extensive tests for edge cases
 
 ---
 

@@ -2,11 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/specification) server for fetching documentation from URLs, generating embeddings, storing them in a [Qdrant](https://qdrant.tech/) vector database, and enabling semantic search. This allows you to augment LLMs like Claude with relevant context from your own documentation sources.
+A [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/specification) server for fetching documentation from URLs, generating embeddings, storing them in a [Qdrant](https://qdrant.tech/) vector database, and enabling semantic search. This allows you to augment LLMs like Claude with relevant context from your own documentation sources, including PDF files.
 
 ## Features
 
-*   **Add Documentation:** Fetch content from a URL, chunk it, generate embeddings, and store it in Qdrant.
+*   **Add Documentation:** Fetch content from a URL (HTML or PDF), chunk it, generate embeddings, and store it in Qdrant.
 *   **Search Documentation:** Perform semantic search over the stored documentation using a query string.
 *   **List Sources:** View the base URLs of the documentation sources currently indexed.
 *   **Configurable Embeddings:** Supports [Ollama](https://ollama.com/) (local) and [OpenAI](https://openai.com/) (cloud) for embedding generation.
@@ -113,10 +113,11 @@ Claude Desktop uses the stdio transport to communicate with local MCP servers.
 
 Once connected to an MCP client (like Claude via stdio or the Inspector), you can use the following tools:
 
-*   **`add_documentation`**: Adds content from a URL.
+*   **`add_documentation`**: Adds content from a URL (HTML or PDF).
     *   **Parameters:**
         *   `url` (string, required): The URL of the documentation page to ingest.
-    *   **Example:** `add_documentation(url="https://example.com")`
+    *   **Example:** `add_documentation(url="https://example.com/manual.pdf")`
+    *   **Note:** PDF files are parsed, chunked by page, and indexed (max size: 20MB). Only public URLs are supported for PDF ingestion.
 
 *   **`search_documentation`**: Searches the indexed documentation.
     *   **Parameters:**
@@ -135,6 +136,12 @@ Once connected to an MCP client (like Claude via stdio or the Inspector), you ca
         *   `apiKey` (string, optional): OpenAI key if `provider=openai`.
         *   `model` (string, optional): Specific model name for the provider.
     *   **Example:** `test_ollama(text="test embedding", provider="ollama", model="nomic-embed-text")`
+
+## Limitations
+
+*   PDF ingestion only supports URLs (no local upload yet)
+*   PDF files must be under 20MB
+*   Each PDF page is a chunk; very large pages are not further split (yet)
 
 ## Contributing
 

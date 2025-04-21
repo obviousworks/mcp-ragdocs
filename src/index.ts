@@ -14,6 +14,7 @@ import * as cheerio from 'cheerio';
 import axios from 'axios';
 import crypto from 'crypto';
 import { EmbeddingService } from './embeddings.js';
+import pdfParse from 'pdf-parse';
 
 // Environment variables for configuration
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
@@ -25,16 +26,16 @@ const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 interface QdrantCollectionConfig {
-		params: {
-				vectors: {
-						size: number;
-						distance: string;
-				};
-		};
+  params: {
+    vectors: {
+      size: number;
+      distance: string;
+    };
+  };
 }
 
 interface QdrantCollectionInfo {
-		config: QdrantCollectionConfig;
+  config: QdrantCollectionConfig;
 }
 
 interface DocumentChunk {
@@ -42,6 +43,10 @@ interface DocumentChunk {
   url: string;
   title: string;
   timestamp: string;
+  page?: number;
+  pageCount?: number;
+  author?: string;
+  _pdf?: boolean;
 }
 
 interface DocumentPayload extends DocumentChunk {
@@ -59,6 +64,48 @@ function isDocumentPayload(payload: unknown): payload is DocumentPayload {
     typeof p.title === 'string' &&
     typeof p.timestamp === 'string'
   );
+}
+
+// Utility: Detect if URL is a PDF (by extension or Content-Type)
+async function isPdfUrlOrContentType(url: string): Promise<boolean> {
+  try {
+    if (url.toLowerCase().endsWith('.pdf')) return true;
+    // Try HEAD request for Content-Type
+    const resp = await axios.head(url, { timeout: 5000 });
+    const ct = resp.headers['content-type'] || '';
+    return ct.includes('application/pdf');
+  } catch (e) {
+    // If HEAD fails, fallback to extension check only
+    return url.toLowerCase().endsWith('.pdf');
+  }
+}
+
+const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+
+// Download PDF as Buffer
+async function downloadPdf(url: string): Promise<Buffer> {
+  const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+  const buf = Buffer.from(resp.data);
+  if (buf.length > MAX_PDF_SIZE_BYTES) {
+    throw new McpError(ErrorCode.InvalidParams, `PDF too large (${(buf.length / 1024 / 1024).toFixed(2)}MB). Max allowed is 20MB.`);
+  }
+  return buf;
+}
+
+// Parse PDF buffer to extract text, metadata, and pages
+async function parsePdf(buffer: Buffer): Promise<{ text: string; meta: any; pages: string[] }> {
+  const data = await pdfParse(buffer);
+  // Split by page breaks (pdf-parse provides text per page)
+  const pages = data.text.split(/\f|\n\s*\n/).map((p: string) => p.trim()).filter(Boolean);
+  return {
+    text: data.text,
+    meta: {
+      title: data.info?.Title || '',
+      author: data.info?.Author || '',
+      pageCount: data.numpages || pages.length,
+    },
+    pages
+  };
 }
 
 class RagDocsServer {
@@ -128,21 +175,21 @@ class RagDocsServer {
       {
         name: 'mcp-ragdocs',
         version: '0.1.0',
-						},
+      },
       {
         capabilities: {
           tools: {},
-								},
-							}
-				);
-				
-				// Error handling
-				this.server.onerror = (error: Error) => console.error('[MCP Error]', error);
-				process.on('SIGINT', async () => {
-						await this.cleanup();
-						process.exit(0);
-				});
-		}
+        },
+      }
+    );
+
+    // Error handling
+    this.server.onerror = (error: Error) => console.error('[MCP Error]', error);
+    process.on('SIGINT', async () => {
+      await this.cleanup();
+      process.exit(0);
+    });
+  }
 
   private async cleanup() {
     if (this.browser) {
@@ -169,11 +216,11 @@ class RagDocsServer {
       const requiredVectorSize = this.embeddingService.getVectorSize();
 
       try {
-								// Check if collection exists
+        // Check if collection exists
         const collections = await this.qdrantClient.getCollections();
         const collection = collections.collections.find(c => c.name === COLLECTION_NAME);
 
-								if (!collection) {
+        if (!collection) {
           console.error(`Creating new collection with vector size ${requiredVectorSize}`);
           await this.qdrantClient.createCollection(COLLECTION_NAME, {
             vectors: {
@@ -184,10 +231,10 @@ class RagDocsServer {
           return;
         }
 
-								// Get collection info to check vector size
-								const collectionInfo = await this.qdrantClient.getCollection(COLLECTION_NAME) as QdrantCollectionInfo;
+        // Get collection info to check vector size
+        const collectionInfo = await this.qdrantClient.getCollection(COLLECTION_NAME) as QdrantCollectionInfo;
         const currentVectorSize = collectionInfo.config?.params?.vectors?.size;
-        
+
         if (!currentVectorSize) {
           console.error('Could not determine current vector size, recreating collection...');
           await this.recreateCollection(requiredVectorSize);
@@ -236,26 +283,38 @@ class RagDocsServer {
   }
 
   private async fetchAndProcessUrl(url: string): Promise<DocumentChunk[]> {
+    if (await isPdfUrlOrContentType(url)) {
+      // PDF ingestion path
+      console.log(`[fetchAndProcessUrl] PDF detected: ${url}`);
+      const pdfBuffer = await downloadPdf(url);
+      const { text, meta, pages } = await parsePdf(pdfBuffer);
+      // Chunk by page (future: further chunk if page > 1000 chars)
+      const title = meta.title || url;
+      const timestamp = new Date().toISOString();
+      return pages.map((page, i) => ({
+        text: page,
+        url,
+        title,
+        timestamp,
+        page: i + 1,
+        pageCount: meta.pageCount,
+        author: meta.author,
+        _pdf: true
+      }));
+    }
+    // HTML/text flow (unchanged)
     await this.initBrowser();
     const page = await this.browser.newPage();
-    
     try {
       await page.goto(url, { waitUntil: 'networkidle' });
       const content = await page.content();
       const $ = cheerio.load(content);
-      
-      // Remove script tags, style tags, and comments
       $('script').remove();
       $('style').remove();
       $('noscript').remove();
-      
-      // Extract main content
       const title = $('title').text() || url;
       const mainContent = $('main, article, .content, .documentation, body').text();
-      
-      // Split content into chunks
       const chunks = this.chunkText(mainContent, 1000);
-      
       return chunks.map(chunk => ({
         text: chunk,
         url,
@@ -276,21 +335,21 @@ class RagDocsServer {
     const words = text.split(/\s+/);
     const chunks: string[] = [];
     let currentChunk: string[] = [];
-    
+
     for (const word of words) {
       currentChunk.push(word);
       const currentLength = currentChunk.join(' ').length;
-      
+
       if (currentLength >= maxChunkSize) {
         chunks.push(currentChunk.join(' '));
         currentChunk = [];
       }
     }
-    
+
     if (currentChunk.length > 0) {
       chunks.push(currentChunk.join(' '));
     }
-    
+
     return chunks;
   }
 
@@ -434,7 +493,7 @@ class RagDocsServer {
 
       // If test is successful, update the server's embedding service
       this.embeddingService = tempEmbeddingService;
-      
+
       // Reinitialize collection with new vector size
       await this.initCollection();
 
@@ -460,30 +519,28 @@ class RagDocsServer {
   }
 
   private async handleAddDocumentation(args: any) {
-    console.log('[handleAddDocumentation] Start', { url: args.url }); 
+    console.log('[handleAddDocumentation] Start', { url: args.url });
     if (!args.url || typeof args.url !== 'string') {
       throw new McpError(ErrorCode.InvalidParams, 'URL is required');
     }
-
+    // Log PDF detection result
+    const isPdf = await isPdfUrlOrContentType(args.url);
+    console.log(`[handleAddDocumentation] PDF detected: ${isPdf}`);
     try {
-      console.log('[handleAddDocumentation] Fetching and processing URL...'); 
+      console.log('[handleAddDocumentation] Fetching and processing URL...');
       const chunks = await this.fetchAndProcessUrl(args.url);
-      console.log(`[handleAddDocumentation] Fetched ${chunks.length} chunks.`); 
-
+      console.log(`[handleAddDocumentation] Fetched ${chunks.length} chunks.`);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        console.log(`[handleAddDocumentation] Processing chunk ${i + 1}/${chunks.length}...`); 
-
-        console.log(`[handleAddDocumentation] Getting embedding for chunk ${i + 1}...`); 
+        console.log(`[handleAddDocumentation] Processing chunk ${i + 1}/${chunks.length}...`);
+        console.log(`[handleAddDocumentation] Getting embedding for chunk ${i + 1}...`);
         const embedding = await this.getEmbeddings(chunk.text);
-        console.log(`[handleAddDocumentation] Got embedding for chunk ${i + 1}. Size: ${embedding.length}`); 
-
+        console.log(`[handleAddDocumentation] Got embedding for chunk ${i + 1}. Size: ${embedding.length}`);
         const payload = {
           ...chunk,
           _type: 'DocumentChunk' as const,
         };
-
-        console.log(`[handleAddDocumentation] Upserting chunk ${i + 1} to Qdrant...`); 
+        console.log(`[handleAddDocumentation] Upserting chunk ${i + 1} to Qdrant...`);
         await this.qdrantClient.upsert(COLLECTION_NAME, {
           wait: true,
           points: [
@@ -494,10 +551,27 @@ class RagDocsServer {
             },
           ],
         });
-        console.log(`[handleAddDocumentation] Upserted chunk ${i + 1} to Qdrant.`); 
+        console.log(`[handleAddDocumentation] Upserted chunk ${i + 1} to Qdrant.`);
       }
-
-      console.log('[handleAddDocumentation] Successfully processed all chunks.'); 
+      console.log('[handleAddDocumentation] Successfully processed all chunks.');
+      // PDF ingestion summary
+      if (chunks.length > 0 && chunks[0]._pdf) {
+        const meta = {
+          pages: chunks.length,
+          pageCount: chunks[0].pageCount,
+          title: chunks[0].title,
+          author: chunks[0].author,
+        };
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully added PDF from ${args.url}\nTitle: ${meta.title}\nAuthor: ${meta.author}\nPages: ${meta.pages}\nChunks: ${chunks.length}`,
+            },
+          ],
+        };
+      }
+      // HTML/text summary (unchanged)
       return {
         content: [
           {
@@ -507,7 +581,7 @@ class RagDocsServer {
         ],
       };
     } catch (error) {
-      console.error('[handleAddDocumentation] Error:', error); 
+      console.error('[handleAddDocumentation] Error:', error);
       return {
         content: [
           {
@@ -529,7 +603,7 @@ class RagDocsServer {
 
     try {
       const queryEmbedding = await this.getEmbeddings(args.query);
-      
+
       const searchResults = await this.qdrantClient.search(COLLECTION_NAME, {
         vector: queryEmbedding,
         limit,
