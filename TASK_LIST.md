@@ -18,6 +18,17 @@
 - [ ] Add more tests for edge cases (invalid params, unknown tool, etc.)
 - [ ] Refactor if tool registry expands beyond current scope
 
+## [PDF Ingestion Support]
+
+### Tasks
+- [ ] Design and document PDF ingestion workflow ([PDF_INGESTION_PLAN.md])
+- [ ] Detect PDF URLs/content-type in ingestion pipeline
+- [ ] Integrate pdf-parse and implement PDF text extraction
+- [ ] Chunk and embed PDF text
+- [ ] Store PDF metadata in Qdrant
+- [ ] Update tool descriptions and README
+- [ ] Add tests for PDF ingestion and error cases
+
 ---
 
 > This file is auto-generated and updated as part of the Claude/Roo tools compatibility patch ([SF][RP][CDiP][AC][TR]).
